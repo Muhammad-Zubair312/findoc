@@ -1,0 +1,121 @@
+[tool.poetry]
+name = "findoc-intelligence"
+version = "1.0.0"
+description = "FinDoc Intelligence backend — Vectorless RAG financial document Q&A"
+authors = ["FinDoc Intelligence"]
+readme = "README.md"
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+# Core
+fastapi = ">=0.110"
+uvicorn = { extras = ["standard"], version = ">=0.27" }
+python-multipart = ">=0.0.9"
+
+pydantic = ">=2.5"
+pydantic-settings = ">=2.1"
+
+sqlalchemy = ">=2.0"
+asyncpg = ">=0.29"
+alembic = ">=1.13"
+greenlet = ">=3.0"
+psycopg2-binary = ">=2.9"
+
+redis = ">=5.0"
+celery = ">=5.3"
+kombu = ">=5.3"
+
+# LLM (Groq via OpenAI SDK)
+openai = ">=1.10"
+tenacity = ">=8.2"
+tiktoken = ">=0.7"
+langchain = ">=0.2"
+langchain-openai = ">=0.1"
+langchain-community = ">=0.2"
+langgraph = ">=0.1"
+langfuse = ">=2.0"
+
+# Retrieval
+qdrant-client = ">=1.7"
+rank-bm25 = ">=0.2.2"
+sentence-transformers = ">=2.7"
+# torch pinned to 2.4.1: newer torch wheels (2.5+) fail to load on some Windows
+# dev machines with OSError WinError 1114 (DLL init failed) in c10.dll; 2.4.1 is
+# also the minimum version required by current transformers releases.
+torch = "2.4.1"
+
+# Document processing
+pypdf = ">=4.0"
+sec-parser = ">=0.50"
+# unstructured[pdf] intentionally NOT used: its layout-detection pipeline
+# transitively pulls unstructured_inference -> torchvision/onnxruntime, which on
+# this dev machine broke torch's own native DLL loading (WinError 1114) and, via
+# spacy/thinc, produced a hard segfault — unrecoverable inside a Celery worker.
+# pypdf (pure Python) + regex heading heuristics does the same job for generic PDFs;
+# sec-parser handles SEC EDGAR HTML natively. See app/ingest/pdf_parser.py.
+
+# Storage
+boto3 = ">=1.34"
+aioboto3 = ">=12.3"
+
+# Security
+passlib = { extras = ["bcrypt"], version = ">=1.7.4" }
+# bcrypt pinned <4.1: passlib 1.7.4 (unmaintained) probes bcrypt.__about__.__version__,
+# which bcrypt>=4.1 removed, crashing passlib's internal backend self-test.
+bcrypt = "4.0.1"
+python-jose = { extras = ["cryptography"], version = ">=3.3" }
+
+# Monitoring
+sentry-sdk = { extras = ["fastapi"], version = ">=1.40" }
+structlog = ">=24.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+pytest-asyncio = ">=0.23"
+httpx = ">=0.26"
+websockets = ">=12.0"
+reportlab = ">=4.1"
+ruff = ">=0.3"
+mypy = ">=1.9"
+types-python-jose = ">=3.3"
+types-passlib = ">=1.7"
+celery-types = ">=0.22"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008: FastAPI's Depends()-as-default is the documented idiom, not a bug.
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+
+# aioboto3 ships no stubs and no popular third-party stub package covers it.
+[[tool.mypy.overrides]]
+module = "aioboto3.*"
+ignore_missing_imports = true
+
+# rank_bm25 ships no stubs and no popular third-party stub package covers it.
+[[tool.mypy.overrides]]
+module = "rank_bm25.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# Session-scoped loop: matches production (one event loop for the process lifetime)
+# so module-level singletons (redis client, SQLAlchemy engine) don't get bound to a
+# loop that a later test's function-scoped loop has already closed.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]

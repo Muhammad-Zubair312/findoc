@@ -1,0 +1,17 @@
+﻿# Dependencies
+node_modules/
+frontend/.next/
+
+# Environment secrets - NEVER commit these
+backend/.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Uploads
+backend/uploads/
+
+# HuggingFace cache
+.cache/
