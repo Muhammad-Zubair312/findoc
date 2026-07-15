@@ -290,9 +290,12 @@ class ApiClient {
     return this.request<QueryTypeAccuracy[]>("/eval/query-types");
   }
 
-  async runEval(): Promise<{ task_id: string }> {
-    return this.request<{ task_id: string }>("/eval/run", { method: "POST" });
-  }
+  async runEval(): Promise<{ run_id: string }> {
+    return this.request<{ run_id: string }>("/eval/run", { 
+        method: "POST",
+        body: JSON.stringify({})
+    });
+}
 }
 
 export const api = new ApiClient(API_URL);

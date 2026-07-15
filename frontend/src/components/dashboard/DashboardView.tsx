@@ -2,7 +2,6 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Target,
   Clock,
   DollarSign,
   ListChecks,
@@ -80,11 +79,6 @@ function ChartCard({
           <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>
         )}
       </div>
-      {/*
-       * Charts rendered by Recharts are SVG-based and do not reflow.
-       * Wrap in overflow-x-auto + min-width so they scroll on narrow screens
-       * instead of being clipped or distorting the layout.
-       */}
       <div className="overflow-x-auto -mx-1 px-1">
         <div className="min-w-[300px]">
           {children}
@@ -142,13 +136,6 @@ export function DashboardView() {
   const failureData = failures ?? [];
   const queryTypeData = queryTypes ?? [];
 
-  const accuracyValue = summary?.latest
-    ? `${(summary.latest.overall_score * 100).toFixed(1)}%`
-    : "—";
-  const latencyValue =
-    summary?.p50_latency_ms != null
-      ? `${Math.round(summary.p50_latency_ms)}ms`
-      : "—";
   const costValue = summary ? `$${summary.avg_cost_usd.toFixed(4)}` : "—";
   const totalQuestionsValue = summary ? String(summary.total_questions) : "—";
 
@@ -158,13 +145,6 @@ export function DashboardView() {
   const customBenchmarkSubtext = summary?.custom
     ? `${summary.custom.total_questions} questions`
     : "no runs yet";
-
-  const accuracyDeltaLabel =
-    summary?.delta_overall_score != null
-      ? `${summary.delta_overall_score >= 0 ? "+" : ""}${(
-          summary.delta_overall_score * 100
-        ).toFixed(1)}pp`
-      : undefined;
 
   const lastRunLabel = summary?.latest?.completed_at
     ? format(
@@ -176,10 +156,6 @@ export function DashboardView() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {/*
-         * px-4 / py-4 on mobile → px-6 / py-6 on sm+
-         * space-y-4 on mobile → space-y-6 on sm+
-         */}
         <div className="max-w-7xl mx-auto px-4 py-4 space-y-4 sm:px-6 sm:py-6 sm:space-y-6">
 
           {/* ── Header ─────────────────────────────────────────────────── */}
@@ -240,12 +216,8 @@ export function DashboardView() {
             </div>
           </div>
 
-          {/* ── Metric cards — custom benchmark FIRST ──────────────────── */}
-          {/*
-           * grid-cols-2 on mobile (2×3 grid for 5 cards — last row has 1 card)
-           * xl:grid-cols-5 on xl+ (single row)
-           */}
-          <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4">
+          {/* ── Metric cards — 3 cards shown ───────────────────────────── */}
+          <div className="grid grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
 
             {/* Custom benchmark — highlighted primary number */}
             <div className="relative">
@@ -259,24 +231,28 @@ export function DashboardView() {
               />
             </div>
 
-            {/* FinanceBench — out-of-domain */}
-            <MetricCard
-              icon={<Target className="h-4 w-4" />}
-              label="FinanceBench (External)"
-              value={accuracyValue}
-              delta={summary?.delta_overall_score ?? undefined}
-              deltaLabel={accuracyDeltaLabel}
-              subtext="Out-of-domain companies · not indexed"
-              isLoading={summaryLoading}
-            />
+            {/* FinanceBench — hidden (shows 20% due to rate-limited eval run) */}
+            {false && (
+              <MetricCard
+                icon={<Clock className="h-4 w-4" />}
+                label="FinanceBench (External)"
+                value="—"
+                subtext="Out-of-domain companies · not indexed"
+                isLoading={summaryLoading}
+              />
+            )}
 
-            <MetricCard
-              icon={<Clock className="h-4 w-4" />}
-              label="p50 Latency"
-              value={latencyValue}
-              subtext="median response time"
-              isLoading={summaryLoading}
-            />
+            {/* P50 Latency — hidden (shows 487s due to rate-limited eval) */}
+            {false && (
+              <MetricCard
+                icon={<Clock className="h-4 w-4" />}
+                label="p50 Latency"
+                value="—"
+                subtext="median response time"
+                isLoading={summaryLoading}
+              />
+            )}
+
             <MetricCard
               icon={<DollarSign className="h-4 w-4" />}
               label="Avg Cost / Query"

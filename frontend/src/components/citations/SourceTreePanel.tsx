@@ -74,7 +74,7 @@ export function SourceTreePanel({ selectedDocumentIds }: SourceTreePanelProps) {
   const displayCitations = useMemo<Citation[]>(
     () =>
       isStreaming
-        ? streaming.citations
+        ? (streaming.citations ?? [])
         : (lastAssistantMsg?.citations ?? []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isStreaming, streaming.citations, lastAssistantMsg?.citations]
@@ -94,7 +94,7 @@ export function SourceTreePanel({ selectedDocumentIds }: SourceTreePanelProps) {
     }
   }, [selectedDocumentIds, activeTreeDocId]);
 
-  // Fetch tree — always enabled so nodes are ready before user switches tab
+  // Fetch tree
   const {
     data: treeNodes,
     isLoading: isTreeLoading,
@@ -106,7 +106,7 @@ export function SourceTreePanel({ selectedDocumentIds }: SourceTreePanelProps) {
     staleTime: 30_000,
   });
 
-  // Fetch document metadata — lazy (only on metadata tab)
+  // Fetch document metadata
   const { data: docMeta, isLoading: isMetaLoading } = useQuery({
     queryKey: ["document", activeTreeDocId],
     queryFn: () => api.getDocument(activeTreeDocId),
@@ -140,35 +140,12 @@ export function SourceTreePanel({ selectedDocumentIds }: SourceTreePanelProps) {
   // Cross-tab hover state
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
-  // Auto-tab-switch with user-override guard
-  const userManuallySwitched = useRef(false);
-  const prevCitationsLength = useRef(0);
-
-  useEffect(() => {
-    if (isStreaming) {
-      userManuallySwitched.current = false;
-      prevCitationsLength.current = 0;
-    }
-  }, [isStreaming]);
-
-  useEffect(() => {
-    const len = displayCitations.length;
-    if (
-      len > 0 &&
-      prevCitationsLength.current === 0 &&
-      !userManuallySwitched.current
-    ) {
-      setActiveSourceTab("citations");
-    }
-    prevCitationsLength.current = len;
-  }, [displayCitations.length, setActiveSourceTab]);
-
+  // Tab click handler — user controls tab manually, NO auto-switching
   const handleTabClick = useCallback(
     (tab: "tree" | "citations" | "metadata") => {
-      if (isStreaming) userManuallySwitched.current = true;
       setActiveSourceTab(tab);
     },
-    [isStreaming, setActiveSourceTab]
+    [setActiveSourceTab]
   );
 
   // Preview modal
@@ -176,6 +153,19 @@ export function SourceTreePanel({ selectedDocumentIds }: SourceTreePanelProps) {
 
   // Ref passed to TreeView for auto-scroll
   const treeScrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to referenced node when citations arrive
+  useEffect(() => {
+    if (referencedNodeIds.size === 0) return;
+    const raf = requestAnimationFrame(() => {
+      const firstId = [...referencedNodeIds][0];
+      const el = treeScrollRef.current?.querySelector(
+        `[data-node-id="${firstId}"]`
+      );
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [referencedNodeIds]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -243,7 +233,7 @@ export function SourceTreePanel({ selectedDocumentIds }: SourceTreePanelProps) {
         })}
       </div>
 
-      {/* Tab content — all mounted, CSS show/hide for scroll preservation */}
+      {/* Tab content */}
       <div className="flex-1 overflow-hidden relative">
         {/* Tree */}
         <div
@@ -256,7 +246,7 @@ export function SourceTreePanel({ selectedDocumentIds }: SourceTreePanelProps) {
             <PanelError message="Failed to load document tree." />
           ) : (
             <TreeView
-              nodes={treeNodes ?? []}
+              nodes={((treeNodes as unknown as { root?: { children?: TreeNode[] } })?.root?.children) ?? []}
               isLoading={isTreeLoading}
               referencedNodeIds={referencedNodeIds}
               hoveredNodeId={hoveredNodeId}
@@ -438,7 +428,6 @@ function MetadataGrid({ doc }: { doc: Document }) {
 
   return (
     <div className="space-y-1">
-      {/* Status badge */}
       <div className="px-2 pb-3">
         <span
           className={cn(
@@ -449,59 +438,22 @@ function MetadataGrid({ doc }: { doc: Document }) {
           {statusLabel}
         </span>
       </div>
-
-      <MetaRow
-        icon={<FileText className="h-4 w-4" />}
-        label="Name"
-        value={doc.name}
-      />
-      <MetaRow
-        icon={<Tag className="h-4 w-4" />}
-        label="Filing type"
-        value={doc.filing_type}
-      />
-      <MetaRow
-        icon={<Hash className="h-4 w-4" />}
-        label="Ticker"
-        value={doc.ticker ?? "—"}
-      />
-      <MetaRow
-        icon={<Database className="h-4 w-4" />}
-        label="Filer"
-        value={doc.filer_name}
-      />
+      <MetaRow icon={<FileText className="h-4 w-4" />} label="Name" value={doc.name} />
+      <MetaRow icon={<Tag className="h-4 w-4" />} label="Filing type" value={doc.filing_type} />
+      <MetaRow icon={<Hash className="h-4 w-4" />} label="Ticker" value={doc.ticker ?? "—"} />
+      <MetaRow icon={<Database className="h-4 w-4" />} label="Filer" value={doc.filer_name} />
       <MetaRow
         icon={<Calendar className="h-4 w-4" />}
         label="Filing date"
-        value={
-          doc.filing_date
-            ? format(new Date(doc.filing_date), "MMM d, yyyy")
-            : "—"
-        }
+        value={doc.filing_date ? format(new Date(doc.filing_date), "MMM d, yyyy") : "—"}
       />
-      <MetaRow
-        icon={<BarChart3 className="h-4 w-4" />}
-        label="Pages"
-        value={doc.page_count != null ? String(doc.page_count) : "—"}
-      />
-      <MetaRow
-        icon={<FileCode className="h-4 w-4" />}
-        label="Nodes"
-        value={doc.node_count != null ? String(doc.node_count) : "—"}
-      />
-      <MetaRow
-        icon={<Database className="h-4 w-4" />}
-        label="File size"
-        value={doc.file_size_bytes != null ? formatBytes(doc.file_size_bytes) : "—"}
-      />
+      <MetaRow icon={<BarChart3 className="h-4 w-4" />} label="Pages" value={doc.page_count != null ? String(doc.page_count) : "—"} />
+      <MetaRow icon={<FileCode className="h-4 w-4" />} label="Nodes" value={doc.node_count != null ? String(doc.node_count) : "—"} />
+      <MetaRow icon={<Database className="h-4 w-4" />} label="File size" value={doc.file_size_bytes != null ? formatBytes(doc.file_size_bytes) : "—"} />
       <MetaRow
         icon={<Calendar className="h-4 w-4" />}
         label="Ingested"
-        value={
-          doc.ingested_at
-            ? format(new Date(doc.ingested_at), "MMM d, yyyy 'at' h:mm a")
-            : "Not yet ingested"
-        }
+        value={doc.ingested_at ? format(new Date(doc.ingested_at), "MMM d, yyyy 'at' h:mm a") : "Not yet ingested"}
       />
     </div>
   );

@@ -86,10 +86,12 @@ function TreeNodeRow({
 
         {/* Page range */}
         <span className="shrink-0 text-[10px] font-mono text-muted-foreground/60 whitespace-nowrap ml-1">
-          {node.page_start === node.page_end
-            ? `p.${node.page_start}`
-            : `p.${node.page_start}–${node.page_end}`}
-        </span>
+  {node.page_start != null
+    ? node.page_start === node.page_end
+      ? `p.${node.page_start}`
+      : `p.${node.page_start}–${node.page_end}`
+    : ""}
+</span>
       </div>
 
       {/* Children */}

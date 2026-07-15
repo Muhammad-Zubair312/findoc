@@ -83,8 +83,12 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     }
   }, [selectedDocumentIds, setSourcePanelOpen]);
 
-  const showSourcePanel =
-    sourcePanelOpen && selectedDocumentIds.length > 0;
+  // ── FIX: panel can open when docs selected OR when any message has citations
+  const hasCitations = messages.some(
+    (m) => m.citations && m.citations.length > 0
+  );
+  const canShowPanel = selectedDocumentIds.length > 0 || hasCitations;
+  const showSourcePanel = sourcePanelOpen && canShowPanel;
 
   const handleSend = useCallback(
     async (query: string, docIds: string[]) => {
@@ -131,8 +135,8 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
       {/* ── Center column: chat ───────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
-        {/* Source panel toggle — only shown when docs are selected */}
-        {selectedDocumentIds.length > 0 && (
+        {/* Source panel toggle — shown when docs selected OR citations exist */}
+        {canShowPanel && (
           <div className="flex items-center justify-end px-3 pt-2 pb-0 sm:px-4">
             <TooltipProvider>
               <Tooltip>
@@ -182,7 +186,6 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
       </div>
 
       {/* ── Source panel: DESKTOP (lg+) sidebar ──────────────────────────── */}
-      {/* Animates as a width-expanding sidebar on large screens             */}
       <AnimatePresence>
         {showSourcePanel && (
           <motion.aside
@@ -202,11 +205,9 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
       </AnimatePresence>
 
       {/* ── Source panel: MOBILE (< lg) full-screen drawer ───────────────── */}
-      {/* Slides in from the right as an overlay — doesn't push chat content */}
       <AnimatePresence>
         {showSourcePanel && (
           <>
-            {/* Backdrop — tap to close */}
             <motion.div
               key="source-backdrop"
               initial={{ opacity: 0 }}
@@ -217,8 +218,6 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
               onClick={toggleSourcePanel}
               aria-hidden="true"
             />
-
-            {/* Drawer panel */}
             <motion.aside
               key="source-panel-mobile"
               initial={{ x: "100%" }}
@@ -232,7 +231,6 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
               )}
               aria-label="Source panel"
             >
-              {/* Mobile drawer header with close button */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-sm font-semibold text-foreground">
                   Sources
@@ -247,8 +245,6 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-
-              {/* Panel content — account for header height */}
               <div className="h-[calc(100%-52px)] overflow-y-auto">
                 <SourceTreePanel selectedDocumentIds={selectedDocumentIds} />
               </div>

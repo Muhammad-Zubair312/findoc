@@ -239,7 +239,8 @@ const AssistantBubble = memo(function AssistantBubble({
 }: MessageBubbleProps) {
   const feedback = useFeedback();
   const setActiveSourceTab = useUIStore((s) => s.setActiveSourceTab);
-
+  const setSourcePanelOpen = useUIStore((s) => s.setSourcePanelOpen);
+  
   const displayContent = isActiveStream
     ? (streamingContent ?? "")
     : message.content;
@@ -258,8 +259,9 @@ const AssistantBubble = memo(function AssistantBubble({
   };
 
   const handleCitationClick = (_idx: number) => {
-    setActiveSourceTab("citations");
-  };
+    setSourcePanelOpen(true);        // opens the panel
+    setActiveSourceTab("citations"); // switches to citations tab
+};
 
   const renderedMarkdown = useMemo(
     () => (

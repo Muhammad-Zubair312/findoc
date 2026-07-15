@@ -30,6 +30,45 @@ _CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 _MAX_SECTION_CHARS = 3000
 
 
+def normalize_citations(text: str) -> str:
+    """
+    Normalize ALL LLM citation formats to clean [N] format.
+
+    Handles every known variant the LLM produces:
+        【2↑L9-L11】   → [2]
+        【7↑L1-L4】    → [7]
+        [2↑L9-L11]    → [2]
+        [1↑L31-L33]   → [1]
+        [1†L31-L33]   → [1]
+        [3†L1-L4]     → [3]
+        【2】           → [2]
+        (1)            → NOT touched (could be real parentheses)
+
+    Applied BEFORE citation extraction and BEFORE streaming tokens to
+    the frontend — so the user always sees clean [1] [2] [3] format
+    regardless of what the LLM decides to output.
+    """
+    # Pattern 1: 【N↑anything】 or 【N†anything】 or 【N】
+    text = re.sub(r'【(\d+)[^】]*】', r'[\1]', text)
+
+    # Pattern 2: [N↑anything] — arrow up variant
+    text = re.sub(r'\[(\d+)↑[^\]]*\]', r'[\1]', text)
+
+    # Pattern 3: [N↓anything] — arrow down variant
+    text = re.sub(r'\[(\d+)↓[^\]]*\]', r'[\1]', text)
+
+    # Pattern 4: [N†anything] — dagger variant
+    text = re.sub(r'\[(\d+)†[^\]]*\]', r'[\1]', text)
+
+    # Pattern 5: [N‡anything] — double dagger variant
+    text = re.sub(r'\[(\d+)‡[^\]]*\]', r'[\1]', text)
+
+    # Pattern 6: [NtLX-LY] — letter t variant (common in llama output)
+    text = re.sub(r'\[(\d+)t[^\]]*\]', r'[\1]', text)
+
+    return text
+
+
 def _build_sections_block(sections: list[Section]) -> str:
     if not sections:
         return "(no sections retrieved — answer from general knowledge only)"
@@ -75,10 +114,6 @@ async def generator_node(state: FinDocState, llm: LLMClient = llm_client) -> dic
     try:
         writer = get_stream_writer()
     except RuntimeError:
-        # No LangGraph runnable context at all (e.g. calling this node function
-        # directly in a unit test, outside graph.ainvoke()/astream()) — verified
-        # get_stream_writer() only no-ops for "no active stream consumer" inside
-        # a real graph run; standalone calls raise instead. Fall back to a no-op.
         def writer(_: Any) -> None:
             return None
 
@@ -94,9 +129,47 @@ async def generator_node(state: FinDocState, llm: LLMClient = llm_client) -> dic
         trace_name="generation",
     )
 
+    # ── Normalize citation format BEFORE extraction and BEFORE sending ──
+    # LLMs often produce 【2↑L9-L11】 or [1↑L31-L33] instead of clean [1]
+    # This code fix is 100% reliable — works regardless of prompt instructions
+    content = normalize_citations(content)
+
     citations = _extract_citations(content, state.retrieved_sections)
 
-    log.info("node_timing", node="generator", elapsed_secs=round(time.perf_counter() - start, 2))
+    # ── Send citations through WebSocket so frontend shows clickable chips ──
+    if citations:
+        writer({
+            "type": "citations",
+            "citations": [
+                {
+                    "id": f"{state.session_id}-{c.index}",
+                    "node_id": c.node_path,
+                    "section_title": c.title,
+                    "page_start": c.page_start,
+                    "page_end": c.page_end,
+                    "excerpt": c.excerpt,
+                    "document_name": (
+                        state.retrieved_sections[c.index - 1].document_name
+                        if c.index <= len(state.retrieved_sections) else ""
+                    ),
+                    "document_id": (
+                        state.retrieved_sections[c.index - 1].document_id
+                        if c.index <= len(state.retrieved_sections) else ""
+                    ),
+                    "full_text": (
+                        state.retrieved_sections[c.index - 1].full_text
+                        if c.index <= len(state.retrieved_sections) else ""
+                    ),
+                }
+                for c in citations
+            ],
+        })
+
+    log.info(
+        "node_timing",
+        node="generator",
+        elapsed_secs=round(time.perf_counter() - start, 2)
+    )
     return {
         "answer": content,
         "citations": citations,

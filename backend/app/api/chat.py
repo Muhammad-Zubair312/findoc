@@ -98,6 +98,15 @@ async def _load_or_create_conversation(
     return conv
 
 
+def _citation_to_dict(c: Any) -> dict:
+    """Safely convert citation to dict — handles Pydantic objects and plain dicts."""
+    if hasattr(c, "model_dump"):
+        return c.model_dump()
+    if isinstance(c, dict):
+        return c
+    return {}
+
+
 @router.websocket("/chat/ws")
 async def chat_ws(websocket: WebSocket, token: str | None = None) -> None:
     async with AsyncSessionLocal() as db:
@@ -169,9 +178,16 @@ async def _handle_chat_message(websocket: WebSocket, user: User, raw: dict[str, 
             ):
                 if mode == "custom":
                     custom_chunk = cast(dict[str, Any], chunk)
-                    token_text = custom_chunk.get("content", "")
-                    streamed_content += token_text
-                    await websocket.send_json({"type": "token", "content": token_text})
+                    event_type = custom_chunk.get("type", "token")
+
+                    # ── FIX: forward citations event directly to frontend ──
+                    if event_type == "citations":
+                        await websocket.send_json(custom_chunk)
+                    else:
+                        token_text = custom_chunk.get("content", "")
+                        streamed_content += token_text
+                        await websocket.send_json({"type": "token", "content": token_text})
+
                 elif mode == "updates":
                     updates_chunk = cast(dict[str, dict[str, Any] | None], chunk)
                     for node_name, node_update in updates_chunk.items():
@@ -220,16 +236,14 @@ async def _handle_chat_message(websocket: WebSocket, user: User, raw: dict[str, 
         latency_ms = (time.perf_counter() - start_time) * 1000
         citations = final_state.get("citations", [])
 
+        # ── FIX: safely handle both Pydantic objects and plain dicts ──
         await websocket.send_json(
             {
                 "type": "citations",
-                "citations": [c.model_dump() for c in citations],
+                "citations": [_citation_to_dict(c) for c in citations],
             }
         )
 
-        # ── Save BEFORE sending "end" so we can include the real DB message_id ──
-        # Previously saved AFTER — frontend never got the real UUID, so feedback
-        # always sent the local crypto.randomUUID() → 404 on every thumbs click.
         real_message_id = await _save_message(
             conversation_id=conversation_id,
             content=final_state.get("answer", streamed_content),
@@ -241,7 +255,7 @@ async def _handle_chat_message(websocket: WebSocket, user: User, raw: dict[str, 
         await websocket.send_json(
             {
                 "type": "end",
-                "message_id": str(real_message_id),  # ← real DB UUID for feedback
+                "message_id": str(real_message_id),
                 "latency_ms": round(latency_ms, 1),
                 "tokens_in": final_state.get("tokens_in"),
                 "tokens_out": final_state.get("tokens_out"),
@@ -258,7 +272,7 @@ async def _save_message(
     final_state: dict[str, Any],
     latency_ms: float,
     is_incomplete: bool,
-) -> uuid.UUID:  # ← now returns the real DB UUID
+) -> uuid.UUID:
     citations = final_state.get("citations", [])
     async with AsyncSessionLocal() as db:
         msg = Message(
@@ -272,7 +286,7 @@ async def _save_message(
             tokens_in=final_state.get("tokens_in"),
             tokens_out=final_state.get("tokens_out"),
             cost_usd=0.0,
-            citations_json=[c.model_dump() for c in citations] if citations else None,
+            citations_json=[_citation_to_dict(c) for c in citations] if citations else None,
             reasoning_trace=final_state.get("reasoning_trace"),
             retry_count=final_state.get("retry_count", 0),
             is_incomplete=is_incomplete,
@@ -280,7 +294,7 @@ async def _save_message(
         db.add(msg)
         await db.commit()
         await db.refresh(msg)
-        return msg.id  # ← return real UUID
+        return msg.id
 
 
 # --- Conversations REST ---
